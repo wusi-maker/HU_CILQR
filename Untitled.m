@@ -55,7 +55,7 @@ ds = 0.5;  % 参考点间距（m），可改 0.2~1.0
 wpt = resample_polyline_by_arclen(lane_ref, ds);
 
 %% ========== 4) iLQR/滚动时域参数（简化版，不含 Σ） ==========
-T_s = 0.1;
+T_s = 0.5;
 N   = 40;    % 4s horizon
 T_sim = 8.0; % 你现在有 NV 8s 轨迹，先跑 8s 看看
 K_exec = min(round(T_sim/T_s), size(nv_all,1)-1); % 确保 NV 轨迹够长
@@ -124,32 +124,71 @@ for k0 = 1:K_exec
     U_warm = [U_opt(:,2:end), U_opt(:,end)];
 end
 
-%% ========== 6) 结果绘图（论文风格） ==========
+%% ========== 6) 结果绘图 ==========
 figure('Name','AV plan vs NV GT + Lanes + RoadBound'); hold on; grid on; axis equal;
-
-% lanes（灰）
 for l = 1:numel(lanes)
     xy = lanes{l};
     if isempty(xy), continue; end
     plot(xy(:,1), xy(:,2), '-', 'Color', [0.75 0.75 0.75], 'LineWidth', 1.0);
 end
 
-% road boundaries（深灰，可开关）
-if road_bound_showFlag && ~isempty(road_bd)
-    plot_road_boundaries_local(road_bd);
-end
-
-% NV（红虚线）
 plot(nv_all(1:K_exec+1,1), nv_all(1:K_exec+1,2), 'r--', 'LineWidth', 2.0);
-
-% AV（蓝实线）
 plot(S_exec(1,:), S_exec(2,:), 'b-', 'LineWidth', 2.5);
-
 xlabel('x_{rel} (m)'); ylabel('y_{rel} (m)');
 title(sprintf('Sample #%d: AV (planned) vs NV (GT)', sampleIdx));
-
 legend({'Lane centerlines','Road boundaries','NV (GT)','AV (planned)'}, 'Location','bestoutside');
 
+%% ========== 7) 三维轨迹显示 ==========
+time = 1:K_exec+1;  % 时间维度
+figure('Name', '3D Trajectories (AV & NV)', 'Color', 'w');
+hold on; grid on;
+
+% 绘制NV轨迹（红色虚线）
+plot3(nv_all(1:K_exec+1, 1), nv_all(1:K_exec+1, 2), time, 'r--', 'LineWidth', 2);
+
+% 绘制AV轨迹（蓝色实线）
+plot3(S_exec(1, :), S_exec(2, :), time, 'b-', 'LineWidth', 2.5);
+
+xlabel('x_{rel} (m)');
+ylabel('y_{rel} (m)');
+zlabel('Time (s)');
+title('3D Trajectories: AV vs NV');
+legend({'NV (GT)', 'AV (planned)'}, 'Location', 'bestoutside');
+hold off;
+
+%% ========== 8) 二维曲线显示 ==========
+% 计算速度、角速度、加速度
+velocity = sqrt(diff(S_exec(1,:)).^2 + diff(S_exec(2,:)).^2) / T_s;
+angular_velocity = diff(S_exec(4,:)) / T_s;
+acceleration = diff(velocity) / T_s;
+
+% 使用subplot绘制多个曲线
+figure('Name', 'Velocity, Angular Velocity, Acceleration and Distance to NV', 'Color', 'w');
+subplot(4,1,1);  % 子图 1: 速度 vs 时间
+plot(time(2:end), velocity, 'b-', 'LineWidth', 2);
+xlabel('Time (s)');
+ylabel('Velocity (m/s)');
+title('Velocity of AV vs Time');
+
+subplot(4,1,2);  % 子图 2: 角速度 vs 时间
+plot(time(2:end), angular_velocity, 'r-', 'LineWidth', 2);
+xlabel('Time (s)');
+ylabel('Angular Velocity (rad/s)');
+title('Angular Velocity of AV vs Time');
+
+subplot(4,1,3);  % 子图 3: 加速度 vs 时间
+plot(time(3:end), acceleration, 'g-', 'LineWidth', 2);
+xlabel('Time (s)');
+ylabel('Acceleration (m/s^2)');
+title('Acceleration of AV vs Time');
+
+% 计算与NV的距离
+distance_to_nv = sqrt((S_exec(1, :) - nv_all(1:K_exec+1, 1)').^2 + (S_exec(2, :) - nv_all(1:K_exec+1, 2)').^2);
+subplot(4,1,4);  % 子图 4: 与NV的距离 vs 时间
+plot(time, distance_to_nv, 'k-', 'LineWidth', 2);
+xlabel('Time (s)');
+ylabel('Distance to NV (m)');
+title('Distance to NV vs Time');
 %% ========================= 辅助函数 =========================
 
 function v0 = estimate_speed_from_past(m, nv_past_xy)
